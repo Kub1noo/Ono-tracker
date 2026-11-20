@@ -10,7 +10,11 @@ STATE_FILE = "prices.json"
 
 
 def get_prices():
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        )
+    }
     response = requests.get(URL, headers=headers, timeout=15)
     if (
         "charset=windows-1250" in response.text.lower()
@@ -23,46 +27,48 @@ def get_prices():
     soup = BeautifulSoup(response.text, "html.parser")
     prices = {}
 
-    print("--- DIAGNOSTIKA CENÍKU (od řádku 25) ---")
-    for i, row in enumerate(soup.find_all("tr")):
-        cells = [
-            c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])
+    # 1. Prohledáme veškerý čistý text stránky řádek po řádku (funguje pro divy, tabulky i seznamy)
+    full_text = soup.get_text("\n", strip=True)
+    lines = [line.strip() for line in full_text.split("\n") if line.strip()]
+
+    print("--- DIAGNOSTIKA TEXTU STRÁNKY ---")
+    for idx, line in enumerate(lines):
+        # Vypíšeme řádky, které obsahují ceny (XX,XX) nebo názvy paliv
+        if re.search(
+            r"(\d{2}[,\.]\d{2}|Natural|Diesel|Nafta|BA\s*95|N95|AdBlue|LPG)",
+            line,
+            re.IGNORECASE,
+        ):
+            print(f"Řádek {idx}: {line}")
+
+    # Spojíme text mezerami pro případ, že název paliva a cena jsou na dvou řádcích pod sebou
+    joined_text = " ".join(lines)
+
+    patterns = {
+        "Natural 95": (
+            r"(?:Natural\s*95|BA\s*95|N\s*95)[^\d]{0,30}(\d{2}[,\.]\d{2})"
+        ),
+        "Natural 98": (
+            r"(?:Natural\s*98|BA\s*98|N\s*98)[^\d]{0,30}(\d{2}[,\.]\d{2})"
+        ),
+        "Diesel": r"(?:Diesel|Nafta|NM)[^\d]{0,30}(\d{2}[,\.]\d{2})",
+    }
+
+    for fuel, pattern in patterns.items():
+        match = re.search(pattern, joined_text, re.IGNORECASE)
+        if match:
+            prices[fuel] = float(match.group(1).replace(",", "."))
+
+    # Pokud se nic nenašlo v textu, vypíšeme iframe nebo obrázky ceníku
+    if not prices:
+        iframes = [f.get("src") for f in soup.find_all("iframe") if f.get("src")]
+        imgs = [
+            img.get("src")
+            for img in soup.find_all("img")
+            if img.get("src") and "cen" in img.get("src").lower()
         ]
-        if not any(cells):
-            continue
-
-        if i >= 25:
-            print(f"Řádek {i}: {cells}")
-
-        row_text = " ".join(cells)
-
-        if (
-            any(
-                k in row_text
-                for k in ["Natural 95", "BA 95", "N95", "Natural95"]
-            )
-            and "Natural 95" not in prices
-        ):
-            match = re.search(r"(\d{2}[,\.]\d{2})", row_text)
-            if match:
-                prices["Natural 95"] = float(match.group(1).replace(",", "."))
-        if (
-            any(
-                k in row_text
-                for k in ["Natural 98", "BA 98", "N98", "Natural98"]
-            )
-            and "Natural 98" not in prices
-        ):
-            match = re.search(r"(\d{2}[,\.]\d{2})", row_text)
-            if match:
-                prices["Natural 98"] = float(match.group(1).replace(",", "."))
-        if (
-            any(k in row_text for k in ["Diesel", "Nafta", "NM"])
-            and "Diesel" not in prices
-        ):
-            match = re.search(r"(\d{2}[,\.]\d{2})", row_text)
-            if match:
-                prices["Diesel"] = float(match.group(1).replace(",", "."))
+        print("Nalezené iframe:", iframes)
+        print("Nalezené obrázky ceníku:", imgs)
 
     return prices
 
