@@ -4,7 +4,7 @@ import re
 from bs4 import BeautifulSoup
 import requests
 
-URL = "http://www.tank-ono.cz/cz/index.php?page=cenik"
+URL = "https://www.tank-ono.cz/cz/index.php?page=cenik"
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
 STATE_FILE = "prices.json"
 
@@ -13,9 +13,16 @@ def get_prices():
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        )
+            " (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+        ),
+        "Accept": (
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        ),
+        "Accept-Language": "cs-CZ,cs;q=0.9,en;q=0.8",
     }
     response = requests.get(URL, headers=headers, timeout=15)
+    print(f"HTTP Status: {response.status_code}, Délka odpovědi: {len(response.text)} znaků")
+
     if (
         "charset=windows-1250" in response.text.lower()
         or "charset=cp1250" in response.text.lower()
@@ -27,21 +34,8 @@ def get_prices():
     soup = BeautifulSoup(response.text, "html.parser")
     prices = {}
 
-    # 1. Prohledáme veškerý čistý text stránky řádek po řádku (funguje pro divy, tabulky i seznamy)
     full_text = soup.get_text("\n", strip=True)
     lines = [line.strip() for line in full_text.split("\n") if line.strip()]
-
-    print("--- DIAGNOSTIKA TEXTU STRÁNKY ---")
-    for idx, line in enumerate(lines):
-        # Vypíšeme řádky, které obsahují ceny (XX,XX) nebo názvy paliv
-        if re.search(
-            r"(\d{2}[,\.]\d{2}|Natural|Diesel|Nafta|BA\s*95|N95|AdBlue|LPG)",
-            line,
-            re.IGNORECASE,
-        ):
-            print(f"Řádek {idx}: {line}")
-
-    # Spojíme text mezerami pro případ, že název paliva a cena jsou na dvou řádcích pod sebou
     joined_text = " ".join(lines)
 
     patterns = {
@@ -59,16 +53,11 @@ def get_prices():
         if match:
             prices[fuel] = float(match.group(1).replace(",", "."))
 
-    # Pokud se nic nenašlo v textu, vypíšeme iframe nebo obrázky ceníku
+    # Pokud se ceny nenašly v textu, vypíšeme všechny obrázky a ukázku textu stránky
     if not prices:
-        iframes = [f.get("src") for f in soup.find_all("iframe") if f.get("src")]
-        imgs = [
-            img.get("src")
-            for img in soup.find_all("img")
-            if img.get("src") and "cen" in img.get("src").lower()
-        ]
-        print("Nalezené iframe:", iframes)
-        print("Nalezené obrázky ceníku:", imgs)
+        all_imgs = [img.get("src") for img in soup.find_all("img") if img.get("src")]
+        print("Všechny obrázky na stránce:", all_imgs)
+        print("Ukázka textu po řádcích (od řádku 40):", lines[40:80])
 
     return prices
 
