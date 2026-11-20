@@ -14,50 +14,34 @@ def get_prices():
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             " (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-        ),
-        "Accept": (
-            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-        ),
-        "Accept-Language": "cs-CZ,cs;q=0.9,en;q=0.8",
+        )
     }
     response = requests.get(URL, headers=headers, timeout=15)
-    print(f"HTTP Status: {response.status_code}, Délka odpovědi: {len(response.text)} znaků")
-
-    if (
-        "charset=windows-1250" in response.text.lower()
-        or "charset=cp1250" in response.text.lower()
-    ):
-        response.encoding = "windows-1250"
-    else:
-        response.encoding = response.apparent_encoding
-
+    response.encoding = "windows-1250"
     soup = BeautifulSoup(response.text, "html.parser")
+
     prices = {}
+    for row in soup.find_all("tr"):
+        cells = [
+            c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])
+        ]
+        # Řádek pobočky začíná např. "ČS Praha - Štěrboholy" nebo "ČS Sokolov" a má 10 sloupců
+        if len(cells) >= 6 and cells[0].startswith("ČS"):
+            # Sloupce podle obrázků v hlavičce:
+            # [1] = n95_c.gif, [2] = n95p_c.gif, [3] = n98_c.gif, [4] = d_c.gif, [5] = d_plus.gif, [6] = ab_c.gif
+            mapping = {
+                "Natural 95": cells[1],
+                "Natural 98": cells[3],
+                "Diesel": cells[4],
+                "Diesel+": cells[5],
+            }
+            for fuel, raw_val in mapping.items():
+                match = re.search(r"(\d{2}[,\.]\d{2})", raw_val)
+                if match:
+                    prices[fuel] = float(match.group(1).replace(",", "."))
 
-    full_text = soup.get_text("\n", strip=True)
-    lines = [line.strip() for line in full_text.split("\n") if line.strip()]
-    joined_text = " ".join(lines)
-
-    patterns = {
-        "Natural 95": (
-            r"(?:Natural\s*95|BA\s*95|N\s*95)[^\d]{0,30}(\d{2}[,\.]\d{2})"
-        ),
-        "Natural 98": (
-            r"(?:Natural\s*98|BA\s*98|N\s*98)[^\d]{0,30}(\d{2}[,\.]\d{2})"
-        ),
-        "Diesel": r"(?:Diesel|Nafta|NM)[^\d]{0,30}(\d{2}[,\.]\d{2})",
-    }
-
-    for fuel, pattern in patterns.items():
-        match = re.search(pattern, joined_text, re.IGNORECASE)
-        if match:
-            prices[fuel] = float(match.group(1).replace(",", "."))
-
-    # Pokud se ceny nenašly v textu, vypíšeme všechny obrázky a ukázku textu stránky
-    if not prices:
-        all_imgs = [img.get("src") for img in soup.find_all("img") if img.get("src")]
-        print("Všechny obrázky na stránce:", all_imgs)
-        print("Ukázka textu po řádcích (od řádku 40):", lines[40:80])
+            if prices:
+                break
 
     return prices
 
@@ -80,7 +64,7 @@ def send_discord_notification(current, previous):
         return
 
     fields = []
-    for fuel in ["Natural 95", "Natural 98", "Diesel"]:
+    for fuel in ["Natural 95", "Natural 98", "Diesel", "Diesel+"]:
         if fuel in current:
             curr_val = current[fuel]
             prev_val = previous.get(fuel)
