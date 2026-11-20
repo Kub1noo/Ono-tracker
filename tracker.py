@@ -12,20 +12,51 @@ STATE_FILE = "prices.json"
 def get_prices():
     headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(URL, headers=headers, timeout=15)
-    response.encoding = "windows-1250"
+    # Zkusíme automatickou detekci kódování, případně windows-1250
+    if (
+        "charset=windows-1250" in response.text.lower()
+        or "charset=cp1250" in response.text.lower()
+    ):
+        response.encoding = "windows-1250"
+    else:
+        response.encoding = response.apparent_encoding
+
     soup = BeautifulSoup(response.text, "html.parser")
-
     prices = {}
-    for row in soup.find_all("tr"):
-        cells = [c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])]
-        row_text = " ".join(cells)
 
-        for fuel in ["Natural 95", "Natural 98", "Diesel"]:
-            if fuel in row_text and fuel not in prices:
-                # Najde cenu ve formátu XX,XX nebo XX.XX (např. 34,90)
+    # Diagnostický výpis prvních 20 řádků tabulek do logu GitHub Actions
+    print("--- DIAGNOSTIKA TABULEK ---")
+    for i, row in enumerate(soup.find_all("tr")[:25]):
+        cells = [
+            c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])
+        ]
+        if any(cells):
+            print(f"Řádek {i}: {cells}")
+            row_text = " ".join(cells)
+
+            # Hledáme různá pojmenování paliv (Natural 95 / N95 / BA 95 / Diesel / Nafta)
+            if (
+                any(k in row_text for k in ["Natural 95", "BA 95", "N95"])
+                and "Natural 95" not in prices
+            ):
                 match = re.search(r"(\d{2}[,\.]\d{2})", row_text)
                 if match:
-                    prices[fuel] = float(match.group(1).replace(",", "."))
+                    prices["Natural 95"] = float(match.group(1).replace(",", "."))
+            if (
+                any(k in row_text for k in ["Natural 98", "BA 98", "N98"])
+                and "Natural 98" not in prices
+            ):
+                match = re.search(r"(\d{2}[,\.]\d{2})", row_text)
+                if match:
+                    prices["Natural 98"] = float(match.group(1).replace(",", "."))
+            if (
+                any(k in row_text for k in ["Diesel", "Nafta", "NM"])
+                and "Diesel" not in prices
+            ):
+                match = re.search(r"(\d{2}[,\.]\d{2})", row_text)
+                if match:
+                    prices["Diesel"] = float(match.group(1).replace(",", "."))
+
     return prices
 
 
@@ -43,7 +74,7 @@ def save_prices(prices):
 
 def send_discord_notification(current, previous):
     if not WEBHOOK_URL:
-        print("Chybí DISCORD_WEBHOOK!")
+        print("CHYBA: Chybí proměnná DISCORD_WEBHOOK!")
         return
 
     fields = []
@@ -63,20 +94,25 @@ def send_discord_notification(current, previous):
             fields.append({"name": fuel, "value": val_str, "inline": True})
 
     embed = {
-        "title": "⛽ Tank ONO – Změna cen paliv",
+        "title": "⛽ Tank ONO – Aktuální ceny paliv",
         "url": URL,
-        "color": 16750848,  # Oranžová
+        "color": 16750848,
         "fields": fields,
         "footer": {"text": "Zdroj: tank-ono.cz"},
     }
 
-    requests.post(WEBHOOK_URL, json={"embeds": [embed]}, timeout=10)
+    r = requests.post(WEBHOOK_URL, json={"embeds": [embed]}, timeout=10)
+    print(f"Discord odpověď: {r.status_code}")
 
 
 def main():
     current_prices = get_prices()
+    print("Nalezené ceny:", current_prices)
+
     if not current_prices:
-        print("Nepodařilo se načíst ceny z webu.")
+        print(
+            "Nepodařilo se načíst žádné ceny z webu (viz diagnostika výše)."
+        )
         return
 
     last_prices = load_last_prices()
