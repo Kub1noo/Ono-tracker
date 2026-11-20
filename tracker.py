@@ -12,7 +12,6 @@ STATE_FILE = "prices.json"
 def get_prices():
     headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(URL, headers=headers, timeout=15)
-    # Zkusíme automatickou detekci kódování, případně windows-1250
     if (
         "charset=windows-1250" in response.text.lower()
         or "charset=cp1250" in response.text.lower()
@@ -24,38 +23,46 @@ def get_prices():
     soup = BeautifulSoup(response.text, "html.parser")
     prices = {}
 
-    # Diagnostický výpis prvních 20 řádků tabulek do logu GitHub Actions
-    print("--- DIAGNOSTIKA TABULEK ---")
-    for i, row in enumerate(soup.find_all("tr")[:25]):
+    print("--- DIAGNOSTIKA CENÍKU (od řádku 25) ---")
+    for i, row in enumerate(soup.find_all("tr")):
         cells = [
             c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])
         ]
-        if any(cells):
-            print(f"Řádek {i}: {cells}")
-            row_text = " ".join(cells)
+        if not any(cells):
+            continue
 
-            # Hledáme různá pojmenování paliv (Natural 95 / N95 / BA 95 / Diesel / Nafta)
-            if (
-                any(k in row_text for k in ["Natural 95", "BA 95", "N95"])
-                and "Natural 95" not in prices
-            ):
-                match = re.search(r"(\d{2}[,\.]\d{2})", row_text)
-                if match:
-                    prices["Natural 95"] = float(match.group(1).replace(",", "."))
-            if (
-                any(k in row_text for k in ["Natural 98", "BA 98", "N98"])
-                and "Natural 98" not in prices
-            ):
-                match = re.search(r"(\d{2}[,\.]\d{2})", row_text)
-                if match:
-                    prices["Natural 98"] = float(match.group(1).replace(",", "."))
-            if (
-                any(k in row_text for k in ["Diesel", "Nafta", "NM"])
-                and "Diesel" not in prices
-            ):
-                match = re.search(r"(\d{2}[,\.]\d{2})", row_text)
-                if match:
-                    prices["Diesel"] = float(match.group(1).replace(",", "."))
+        if i >= 25:
+            print(f"Řádek {i}: {cells}")
+
+        row_text = " ".join(cells)
+
+        if (
+            any(
+                k in row_text
+                for k in ["Natural 95", "BA 95", "N95", "Natural95"]
+            )
+            and "Natural 95" not in prices
+        ):
+            match = re.search(r"(\d{2}[,\.]\d{2})", row_text)
+            if match:
+                prices["Natural 95"] = float(match.group(1).replace(",", "."))
+        if (
+            any(
+                k in row_text
+                for k in ["Natural 98", "BA 98", "N98", "Natural98"]
+            )
+            and "Natural 98" not in prices
+        ):
+            match = re.search(r"(\d{2}[,\.]\d{2})", row_text)
+            if match:
+                prices["Natural 98"] = float(match.group(1).replace(",", "."))
+        if (
+            any(k in row_text for k in ["Diesel", "Nafta", "NM"])
+            and "Diesel" not in prices
+        ):
+            match = re.search(r"(\d{2}[,\.]\d{2})", row_text)
+            if match:
+                prices["Diesel"] = float(match.group(1).replace(",", "."))
 
     return prices
 
@@ -110,9 +117,7 @@ def main():
     print("Nalezené ceny:", current_prices)
 
     if not current_prices:
-        print(
-            "Nepodařilo se načíst žádné ceny z webu (viz diagnostika výše)."
-        )
+        print("Nepodařilo se načíst žádné ceny z webu.")
         return
 
     last_prices = load_last_prices()
