@@ -1,35 +1,8 @@
-name: Kontrola cen Tank ONO
-
-on:
-  schedule:
-    # Spustí se každou hodinu v 05. minutu (např. 12:05, 13:05...)
-    - cron: '5 * * * *'
-  # Umožní ti skript spustit i ručně tlačítkem pro otestování
-  workflow_dispatch:
-
-jobs:
-  check-fuel:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Stažení repozitáře
-        uses: actions/checkout@v4
-
-      - name: Nastavení Pythonu
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Instalace knihoven
-        run: pip install requests beautifulsoup4
-
-      - name: Spuštění kontroly cen
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        run: python tracker.py
-
-      - name: Uložení nových cen do repozitáře
+- name: Uložení nových cen do repozitáře
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add prices.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Aktualizace cen" && git push)
+          if [ -f prices.json ]; then
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add prices.json
+            git diff --quiet && git diff --staged --quiet || (git commit -m "Aktualizace cen" && git push)
+          fi
