@@ -20,31 +20,25 @@ def get_prices():
     response.encoding = "windows-1250"
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # Vytáhneme čisté položky textu tak, jak jdou za sebou na stránce
-    lines = [
-        line.strip()
-        for line in soup.get_text("\n", strip=True).split("\n")
-        if line.strip()
-    ]
+    # Spojíme celý text stránky jedinou mezerou
+    text = " ".join(soup.get_text(" ", strip=True).split())
+
+    # Hledáme vzor z ceníku ONO: (N95) (N95+ nebo ---) (N98) (Diesel) (Diesel+ nebo ---)
+    # Např.: 36,90 --- 38,90 42,50 42,90
+    pattern = (
+        r"(\d{2}[,\.]\d{2})\s+(?:\d{2}[,\.]\d{2}|---)\s+(\d{2}[,\.]\d{2}|---)\s+(\d{2}[,\.]\d{2})\s+(\d{2}[,\.]\d{2}|---)"
+    )
+    match = re.search(pattern, text)
 
     prices = {}
-    for i, item in enumerate(lines):
-        # Najdeme řádek s pražskou pobočkou (Štěrboholy / Dolní Měcholupy) nebo jakoukoli ČS
-        if ("Štěrboholy" in item or "Měcholupy" in item) and i + 5 < len(lines):
-            # Za názvem pobočky následuje v pevném pořadí:
-            # +1: Natural 95, +2: Natural 95+, +3: Natural 98, +4: Diesel, +5: Diesel+
-            candidates = {
-                "Natural 95": lines[i + 1],
-                "Natural 98": lines[i + 3],
-                "Diesel": lines[i + 4],
-                "Diesel+": lines[i + 5],
-            }
-            for fuel, val in candidates.items():
-                match = re.search(r"(\d{2}[,\.]\d{2})", val)
-                if match:
-                    prices[fuel] = float(match.group(1).replace(",", "."))
-            if prices:
-                break
+    if match:
+        n95, n98, diesel, diesel_plus = match.groups()
+        prices["Natural 95"] = float(n95.replace(",", "."))
+        if n98 != "---":
+            prices["Natural 98"] = float(n98.replace(",", "."))
+        prices["Diesel"] = float(diesel.replace(",", "."))
+        if diesel_plus != "---":
+            prices["Diesel+"] = float(diesel_plus.replace(",", "."))
 
     return prices
 
@@ -87,7 +81,7 @@ def send_discord_notification(current, previous):
         "url": URL,
         "color": 16750848,
         "fields": fields,
-        "footer": {"text": "Zdroj: tank-ono.cz (Praha)"},
+        "footer": {"text": "Zdroj: tank-ono.cz"},
     }
 
     r = requests.post(WEBHOOK_URL, json={"embeds": [embed]}, timeout=10)
