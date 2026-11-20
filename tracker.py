@@ -26,7 +26,7 @@ def get_prices():
             c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])
         ]
         # Řádek pobočky začíná např. "ČS Praha - Štěrboholy" nebo "ČS Sokolov" a má 10 sloupců
-        if len(cells) >= 6 and cells[0].startswith("ČS"):
+        if len(cells) >= 6 and ("Měcholupy" in cells[0] or "Štěrboholy" in cells[0]):
             # Sloupce podle obrázků v hlavičce:
             # [1] = n95_c.gif, [2] = n95p_c.gif, [3] = n98_c.gif, [4] = d_c.gif, [5] = d_plus.gif, [6] = ab_c.gif
             mapping = {
