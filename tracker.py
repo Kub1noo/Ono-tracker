@@ -20,26 +20,29 @@ def get_prices():
     response.encoding = "windows-1250"
     soup = BeautifulSoup(response.text, "html.parser")
 
+    # Vytáhneme čisté položky textu tak, jak jdou za sebou na stránce
+    lines = [
+        line.strip()
+        for line in soup.get_text("\n", strip=True).split("\n")
+        if line.strip()
+    ]
+
     prices = {}
-    for row in soup.find_all("tr"):
-        cells = [
-            c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])
-        ]
-        # Řádek pobočky začíná např. "ČS Praha - Štěrboholy" nebo "ČS Sokolov" a má 10 sloupců
-        if len(cells) >= 6 and ("Měcholupy" in cells[0] or "Štěrboholy" in cells[0]):
-            # Sloupce podle obrázků v hlavičce:
-            # [1] = n95_c.gif, [2] = n95p_c.gif, [3] = n98_c.gif, [4] = d_c.gif, [5] = d_plus.gif, [6] = ab_c.gif
-            mapping = {
-                "Natural 95": cells[1],
-                "Natural 98": cells[3],
-                "Diesel": cells[4],
-                "Diesel+": cells[5],
+    for i, item in enumerate(lines):
+        # Najdeme řádek s pražskou pobočkou (Štěrboholy / Dolní Měcholupy) nebo jakoukoli ČS
+        if ("Štěrboholy" in item or "Měcholupy" in item) and i + 5 < len(lines):
+            # Za názvem pobočky následuje v pevném pořadí:
+            # +1: Natural 95, +2: Natural 95+, +3: Natural 98, +4: Diesel, +5: Diesel+
+            candidates = {
+                "Natural 95": lines[i + 1],
+                "Natural 98": lines[i + 3],
+                "Diesel": lines[i + 4],
+                "Diesel+": lines[i + 5],
             }
-            for fuel, raw_val in mapping.items():
-                match = re.search(r"(\d{2}[,\.]\d{2})", raw_val)
+            for fuel, val in candidates.items():
+                match = re.search(r"(\d{2}[,\.]\d{2})", val)
                 if match:
                     prices[fuel] = float(match.group(1).replace(",", "."))
-
             if prices:
                 break
 
@@ -84,7 +87,7 @@ def send_discord_notification(current, previous):
         "url": URL,
         "color": 16750848,
         "fields": fields,
-        "footer": {"text": "Zdroj: tank-ono.cz"},
+        "footer": {"text": "Zdroj: tank-ono.cz (Praha)"},
     }
 
     r = requests.post(WEBHOOK_URL, json={"embeds": [embed]}, timeout=10)
