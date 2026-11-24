@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 from bs4 import BeautifulSoup
 import requests
 
@@ -16,29 +17,41 @@ def get_prices():
             " (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
         )
     }
-    response = requests.get(URL, headers=headers, timeout=15)
+
+    response = None
+    for attempt in range(1, 4):
+        try:
+            response = requests.get(URL, headers=headers, timeout=25)
+            response.raise_for_status()
+            break
+        except requests.RequestException as e:
+            print(f"Pokus {attempt}/3 selhal ({e})")
+            if attempt < 3:
+                time.sleep(5)
+            else:
+                print("Web Tank ONO je dočasně nedostupný, zkusím to zase při dalším běhu.")
+                return {}
+
     response.encoding = "windows-1250"
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # Spojíme celý text stránky jedinou mezerou
-    text = " ".join(soup.get_text(" ", strip=True).split())
-
-    # Hledáme vzor z ceníku ONO: (N95) (N95+ nebo ---) (N98) (Diesel) (Diesel+ nebo ---)
-    # Např.: 36,90 --- 38,90 42,50 42,90
-    pattern = (
-        r"(\d{2}[,\.]\d{2})\s+(?:\d{2}[,\.]\d{2}|---)\s+(\d{2}[,\.]\d{2}|---)\s+(\d{2}[,\.]\d{2})\s+(\d{2}[,\.]\d{2}|---)"
-    )
-    match = re.search(pattern, text)
-
     prices = {}
-    if match:
-        n95, n98, diesel, diesel_plus = match.groups()
-        prices["Natural 95"] = float(n95.replace(",", "."))
-        if n98 != "---":
-            prices["Natural 98"] = float(n98.replace(",", "."))
-        prices["Diesel"] = float(diesel.replace(",", "."))
-        if diesel_plus != "---":
-            prices["Diesel+"] = float(diesel_plus.replace(",", "."))
+    for row in soup.find_all("tr"):
+        cells = [c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])]
+        if len(cells) >= 6:
+            price_cells = cells[1:6]
+            if all(re.fullmatch(r"(\d{2}[,\.]\d{2}|---+)", c) for c in price_cells):
+                mapping = {
+                    "Natural 95": price_cells[0],
+                    "Natural 98": price_cells[2],
+                    "Diesel": price_cells[3],
+                    "Diesel+": price_cells[4],
+                }
+                for fuel, val in mapping.items():
+                    if re.match(r"\d{2}[,\.]\d{2}", val):
+                        prices[fuel] = float(val.replace(",", "."))
+                if prices:
+                    break
 
     return prices
 
@@ -90,12 +103,10 @@ def send_discord_notification(current, previous):
 
 def main():
     current_prices = get_prices()
-    print("Nalezené ceny:", current_prices)
-
     if not current_prices:
-        print("Nepodařilo se načíst žádné ceny z webu.")
         return
 
+    print("Nalezené ceny:", current_prices)
     last_prices = load_last_prices()
 
     if current_prices != last_prices:
